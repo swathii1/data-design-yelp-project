@@ -1,0 +1,312 @@
+    #!/usr/bin/env python
+    # coding: utf-8
+
+    # In[1]:
+
+    import requests
+    from bs4 import BeautifulSoup
+    import time
+    import json
+    import sys
+    import codecs
+    import numpy as np
+    import re
+    import pymongo
+
+  
+    url = 'https://www.yelp.com/search?find_desc=donut+shop&find_loc=San+Francisco%2C+CA&start='
+    hdr= {'User-Agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.96 Safari/537.36 Edg/88.0.705.56'}
+
+
+    #Iterate and save search pages to disk
+
+    for pgn in range(0,4):
+
+        req = requests.get(url + str(pgn)+'0', headers = hdr)
+        soup = BeautifulSoup(req.content, 'html.parser')
+        time.sleep(5)
+        file= open("sf_donut_shop_search_page" + str(pgn) + ".htm","w")
+        file.write(str(soup))
+        file.close()
+
+
+    # In[15]:
+
+
+
+
+    #from the search pages get the main div and the corresponding sections for the attributes
+    a = 1
+    for pgn in range(0,4):
+        f = open("sf_donut_shop_search_page" + str(pgn) + ".htm")
+        print('\n\nPage Number:', pgn)
+        data = f.read()
+        soup = BeautifulSoup(data, 'html.parser')
+        divs = soup.find_all("div",{'class':'container__09f24__mpR8_ hoverable__09f24__wQ_on margin-t3__09f24__riq4X margin-b3__09f24__l9v5d padding-t3__09f24__TMrIW padding-r3__09f24__eaF7p padding-b3__09f24__S8R2d padding-l3__09f24__IOjKY border--top__09f24__exYYb border--right__09f24__X7Tln border--bottom__09f24___mg5X border--left__09f24__DMOkM border-color--default__09f24__NPAKY'})
+
+    #Skip the first 2 sponsored items and the last one which is also a sponsored result
+    # hence the loop through 12 for the page 
+
+        for j in np.arange(2,12,1):
+            name = divs[j].h3.span.a.get('name')
+            pos = a
+            link = str('https://www.yelp.com/') + divs[j].h3.span.a.get('href')
+            print("Shop name: ",name)
+            print("Shop rank:", pos)
+            print(link)
+            a = a + 1
+
+            #For ratings
+
+            ratings = divs[j].find("span",{'class':'display--inline__09f24__c6N_k border-color--default__09f24__NPAKY'}).div.get('aria-label')
+            print('ratings:',ratings)
+
+            #For review counts
+
+            reviews = divs[j].find("span",{'class':'reviewCount__09f24__tnBk4 css-1e4fdj9'}).text
+            print("review count", reviews)
+
+            #For delivery or takeout tags
+
+            tags = divs[j].find("span",{'class':'css-epvm6 display--inline__09f24__c6N_k border-color--default__09f24__NPAKY'})
+
+
+            for tag in tags:
+                tagcontent = tag.text
+                print('Tags:', tagcontent)
+
+            try:
+                pricecat = divs[j].find('span',{'class':'priceRange__09f24__mmOuH css-18qxe2r'}).text
+                print("Price Category:", pricecat)
+            except: 
+                continue
+
+
+            #Delivery and Takeout tags
+            try:
+                del_takeout = divs[j].find("div",{'data-testid':'TRUSTED_PROPERTY'})
+                for del_tak in del_takeout:
+                    tags_bool= del_tak.find('span',{'class':'raw__09f24__T4Ezm'}).text
+                    print("Delivery or Takeout:",tags_bool)
+            except:
+                continue
+
+
+            #For orders online
+            try:
+                orders = divs[j].find("span",{'class':'css-1enow5j'})
+                print("online ordering: Yes")
+            except: 
+                continue      
+
+    # In[17]:
+
+
+
+    myclient = pymongo.MongoClient("mongodb://localhost:27017/")
+
+    print("Connected to MongoDb Client")
+
+    #Create database ind_proj
+    mydb = myclient["ind_proj"]
+
+    print("Created individual project database")
+
+    mycol = mydb["sf_donut_shops"]
+
+    print("Created collection sf_donut_shop")
+
+    a = 1
+    for pgn in range(0,4):
+        f = open("sf_donut_shop_search_page" + str(pgn) + ".htm")
+
+        print('\n Page number '+str(pgn)+' inserted to database')
+
+        data = f.read()
+        soup = BeautifulSoup(data, 'html.parser')
+
+        divs = soup.find_all("div",{'class':'container__09f24__mpR8_ hoverable__09f24__wQ_on margin-t3__09f24__riq4X margin-b3__09f24__l9v5d padding-t3__09f24__TMrIW padding-r3__09f24__eaF7p padding-b3__09f24__S8R2d padding-l3__09f24__IOjKY border--top__09f24__exYYb border--right__09f24__X7Tln border--bottom__09f24___mg5X border--left__09f24__DMOkM border-color--default__09f24__NPAKY'})
+
+        for j in np.arange(2,12,1):
+            name = divs[j].h3.span.a.get('name')
+            pos = a
+
+            #For the shop links
+
+            link = str('https://www.yelp.com/') + divs[j].h3.span.a.get('href')
+
+            #Reviews
+            reviews= divs[j].find("span",{'class':'reviewCount__09f24__tnBk4 css-1e4fdj9'}).text
+
+            #Ratings
+            ratings = divs[j].find("span",{'class':'display--inline__09f24__c6N_k border-color--default__09f24__NPAKY'}).div.get('aria-label')
+
+            #Tags
+            tags = divs[j].find("span",{'class':'css-epvm6 display--inline__09f24__c6N_k border-color--default__09f24__NPAKY'})
+            a= a + 1 
+
+            try:
+                orders = divs[j].find("span",{'class':'css-1enow5j'}).text
+                order_online = "Yes"
+
+            except: 
+                order_online = None
+
+            try:
+                pricecat = divs[j].find('span',{'class':'priceRange__09f24__mmOuH css-18qxe2r'}).text
+
+            except: 
+                pricecat = None
+                shopdict = {"name":name, "rating": ratings,"link": link, "tag":[], "shop rank":pos, "review": reviews,"price category": pricecat, "delivery takeouts":[],"ordering online":order_online}
+
+            #Creating a dictionary to store all the values for the attributes
+            shopdict = {"name":name, "rating": ratings,"link": link, "tag":[], "shop rank":pos, "review": reviews,"price category": pricecat,"delivery takeouts":[],"ordering online":order_online}
+
+            for  tag in tags:
+                tag_content = tag.text
+                shopdict['tag'].append(tag_content)
+
+            try:
+                del_takeout = divs[j].find("div",{'data-testid':'TRUSTED_PROPERTY'})
+                for del_tak in del_takeout:
+                    tags_bool = del_tak.find('span',{'class':'raw__09f24__T4Ezm'}).text
+                    shopdict['delivery takeouts'].append(tags_bool)
+
+            except:
+                tags_bool = None
+                shopdict['delivery takeouts'].append(tags_bool)
+
+            #Inserting the dictionary into Mongo DB
+            mydb.sf_donut_shops.insert_one(shopdict)
+
+
+
+    pages = list(mycol.find({},{"_id": 0,"link":1}))
+    m = 1 
+
+
+    #HTML pages for each of the shops
+    for page in pages:
+        url = page['link']
+        req = requests.get(url)
+        soup = BeautifulSoup(req.content, 'html.parser')
+
+        time.sleep(5)
+
+        file= open("sf_donut_shop_" + str(m) + ".htm","w",encoding='utf-8')
+        file.write(str(soup))
+        file.close()
+        m +=1
+
+
+    # In[18]:
+
+
+
+
+    for n in range(1,41):
+        f= open("sf_donut_shop_" + str(n) + ".htm",encoding="utf8")
+        data = f.read()
+        soup = BeautifulSoup(data, 'html.parser')
+
+        #divs for the page to fetch the address phone number and website info
+        divs = soup.find_all("div",{'class':'css-xp8w2v padding-t2__09f24__Y6duA padding-r2__09f24__ByXi4 padding-b2__09f24__F0z5y padding-l2__09f24__kf_t_ border--top__09f24__exYYb border--right__09f24__X7Tln border--bottom__09f24___mg5X border--left__09f24__DMOkM border-radius--regular__09f24__MLlCO background-color--white__09f24__ulvSM'})
+        print("Shops:",n)
+
+        for div in divs:
+            try:     
+                adr = re.compile(r'Get Directions')
+                address = div.find("p",text=adr).nextSibling
+                print("address:", address.text)
+            except: 
+                address = None
+
+            try: 
+                site = re.compile(r'Business website')
+                website = div.find("p",text=site).nextSibling
+                print("website:", website.text)
+
+                phoneno = re.compile(r'Phone number')
+                phone_number = div.find("p",text=phoneno).nextSibling.text
+                print("phone:",phone_number)
+
+            except: 
+                try:
+                    phoneno = re.compile(r'Phone number')
+                    phone_number = div.find("p",text=phoneno).nextSibling
+                    print("phone:",phoneno.text)
+                except: continue
+
+
+
+    # In[14]:
+
+
+    #
+    for n in range(1,41):
+        f= open("sf_donut_shop_" + str(n) + ".htm",encoding="utf8")
+        data = f.read()
+        soup = BeautifulSoup(data, 'html.parser')
+        divs = soup.find_all("div",{'class':'css-xp8w2v padding-t2__09f24__Y6duA padding-r2__09f24__ByXi4 padding-b2__09f24__F0z5y padding-l2__09f24__kf_t_ border--top__09f24__exYYb border--right__09f24__X7Tln border--bottom__09f24___mg5X border--left__09f24__DMOkM border-radius--regular__09f24__MLlCO background-color--white__09f24__ulvSM'})
+
+
+        for div in divs:
+            try:
+                 #search for address pattern 
+                adress = re.compile(r'Get Directions')
+                adr = div.find("p",text=adress).nextSibling.text
+                mydb.sf_donut_shops.find_one_and_update({'shop rank':int(n)}, {"$set":{'address':adr}})
+                print(address)
+            except: address = None
+
+                #Search for business website
+            try:
+                site = re.compile(r'Business website')
+                website = div.find("p",text=site).nextSibling.text
+                mydb.sf_donut_shops.find_one_and_update({'shop rank':int(n)}, {"$set":{'website':website}})
+
+                phone_number = re.compile(r'Phone number')
+                phoneno = div.find("p",text=phone_number).nextSibling.text
+                mydb.sf_donut_shops.find_one_and_update({'shop rank':int(n)}, {"$set":{'phone':phoneno}})
+            except: 
+
+                #Search for phone number
+                try:
+                    phone_number = re.compile(r'Phone number')
+                    phoneno = div.find("p",text=phone_number).nextSibling.text
+                    mydb.sf_donut_shops.find_one_and_update({'shop rank':int(n)}, {"$set":{'phone':phoneno}})
+                except: continue
+
+            try: 
+                #api embedding create json object
+                url = 'http://api.positionstack.com/v1/forward?access_key=67d9a736a112de88db57ce60975f768b&query=' + str(adr)
+                print(url)
+
+                req = requests.get(url)
+                data1 = BeautifulSoup(req.content, 'html.parser')
+                obj = json.loads(str(data1))
+                print(obj)
+
+            except: continue
+
+            lat = obj['data'][0]['latitude']
+            mydb.sf_donut_shops.find_one_and_update({'shop rank':int(n)}, {"$set":{'latitude':lat}})
+
+            long = obj['data'][0]['longitude']
+            mydb.sf_donut_shops.find_one_and_update({'shop rank':int(n)}, {"$set":{'longitiude':long}})
+
+
+    # In[19]:
+
+
+
+    #Placing an index on the shop's search rank
+    mydb.sf_donut_shops.create_index('shop rank')
+    index_info=mydb.sf_donut_shops.index_information()
+    print("Search rank index info :")
+    print(index_info)
+
+
+    # In[ ]:
+
+
